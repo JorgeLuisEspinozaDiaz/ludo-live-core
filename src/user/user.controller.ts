@@ -18,6 +18,11 @@ import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ChangeUserStatusDto, UpdateUserDto } from './dto/update-user.dto';
+import {
+  CreateParticipantDto,
+  ResetPasswordDto,
+} from './dto/create-participant.dto';
+import { CreateAccessLinkDto } from 'src/auth/dto/login.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -33,6 +38,16 @@ export class UserController {
     @CurrentUser() user: { id: string },
   ) {
     return this.userService.create(tenantId, dto, user?.id);
+  }
+
+  @Post('participants')
+  @RequirePermissions(PermissionCode.SYSTEM_ADMIN)
+  createParticipant(
+    @TenantId() tenantId: string,
+    @Body() dto: CreateParticipantDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.userService.createParticipant(tenantId, dto, user?.id);
   }
 
   @Get()
@@ -80,5 +95,30 @@ export class UserController {
     @CurrentUser() user: { id: string },
   ) {
     return this.userService.remove(tenantId, id, user?.id);
+  }
+
+  @Post(':id/reset-password')
+  @RequirePermissions(PermissionCode.SYSTEM_ADMIN)
+  resetPassword(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResetPasswordDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.userService.resetPassword(tenantId, id, dto.password, user?.id);
+  }
+
+  /** Genera token para link directo (sin PIN) */
+  @Post(':id/access-link')
+  @RequirePermissions(PermissionCode.SYSTEM_ADMIN)
+  createAccessLink(
+    @TenantId() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateAccessLinkDto,
+  ) {
+    return this.userService.createAccessLink(tenantId, id, {
+      liveId: dto.liveId,
+      expiresInDays: dto.expiresInDays,
+    });
   }
 }

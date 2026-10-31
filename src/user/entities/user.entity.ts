@@ -19,6 +19,10 @@ export class User extends TenantScopedEntity {
   @Column({ nullable: true })
   email?: string;
 
+  /** PIN de ingreso al vivo (único por tenant). Solo participantes. */
+  @Column({ name: 'access_pin', type: 'varchar', length: 32, nullable: true })
+  accessPin?: string | null;
+
   @Exclude()
   @Column()
   password: string;
@@ -30,6 +34,11 @@ export class User extends TenantScopedEntity {
   @Column({ name: 'role_id', type: 'uuid' })
   roleId: string;
 
-  @Column({ type: 'enum', enum: EntityStatus, default: EntityStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: EntityStatus,
+    enumName: 'entity_status_enum',
+    default: EntityStatus.ACTIVE,
+  })
   status: EntityStatus;
 }

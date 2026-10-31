@@ -4,12 +4,6 @@ import { Section } from 'src/section/entities/section.entity';
 import { Permission } from 'src/permission/entities/permission.entity';
 import { PermissionCode } from 'src/common/enums';
 
-/**
- * Estructura del sidebar:
- * - menu  = grupo / sectionName del UI
- * - sections = ítems de navegación
- * - permissions = códigos requeridos para mostrar el ítem
- */
 export type NavSectionDef = {
   name: string;
   order: number;
@@ -37,8 +31,59 @@ export const NAV_CATALOG: NavMenuDef[] = [
     ],
   },
   {
-    name: 'SISTEMA',
+    name: 'JUEGO',
     order: 2,
+    sections: [
+      {
+        name: 'Transmisiones',
+        order: 1,
+        route: '/lives',
+        permissions: [PermissionCode.LIVE_VIEW, PermissionCode.LIVE_MANAGE],
+      },
+      {
+        name: 'Rondas',
+        order: 2,
+        route: '/rounds',
+        permissions: [PermissionCode.ROUND_VIEW, PermissionCode.ROUND_MANAGE],
+      },
+      {
+        name: 'Mochilas',
+        order: 3,
+        route: '/wallets',
+        permissions: [
+          PermissionCode.WALLET_VIEW_OWN,
+          PermissionCode.WALLET_VIEW_ALL,
+        ],
+      },
+      {
+        name: 'Pagos',
+        order: 4,
+        route: '/wallets/payments',
+        permissions: [PermissionCode.WALLET_PAYMENT],
+      },
+      {
+        name: 'Historial',
+        order: 5,
+        route: '/history',
+        permissions: [PermissionCode.HISTORY_VIEW],
+      },
+      {
+        name: 'Configuración del juego',
+        order: 6,
+        route: '/game-config',
+        permissions: [PermissionCode.GAME_CONFIG],
+      },
+      {
+        name: 'Auditoría',
+        order: 7,
+        route: '/audit',
+        permissions: [PermissionCode.AUDIT_VIEW],
+      },
+    ],
+  },
+  {
+    name: 'SISTEMA',
+    order: 3,
     sections: [
       {
         name: 'Usuarios',
@@ -65,9 +110,25 @@ export const NAV_CATALOG: NavMenuDef[] = [
 const PERMISSION_META: Record<PermissionCode, { description: string }> = {
   [PermissionCode.DASHBOARD_VIEW]: { description: 'Ver dashboard' },
   [PermissionCode.SYSTEM_ADMIN]: { description: 'Administración del sistema' },
+  [PermissionCode.LIVE_MANAGE]: { description: 'Gestionar transmisiones' },
+  [PermissionCode.LIVE_VIEW]: { description: 'Ver transmisiones' },
+  [PermissionCode.ROUND_MANAGE]: { description: 'Gestionar rondas' },
+  [PermissionCode.ROUND_VIEW]: { description: 'Ver rondas' },
+  [PermissionCode.PROMO_MANAGE]: { description: 'Gestionar promociones' },
+  [PermissionCode.PURCHASE_CREATE]: { description: 'Comprar casillas' },
+  [PermissionCode.PURCHASE_CANCEL]: { description: 'Cancelar compras' },
+  [PermissionCode.WALLET_VIEW_OWN]: { description: 'Ver mochila propia' },
+  [PermissionCode.WALLET_VIEW_ALL]: { description: 'Ver todas las mochilas' },
+  [PermissionCode.WALLET_PAYMENT]: { description: 'Registrar pagos' },
+  [PermissionCode.WALLET_ADJUST]: { description: 'Ajustar mochila' },
+  [PermissionCode.POINTS_REDEEM]: { description: 'Canjear puntos' },
+  [PermissionCode.POINTS_ADJUST]: { description: 'Ajustar puntos' },
+  [PermissionCode.HISTORY_VIEW]: { description: 'Ver historial' },
+  [PermissionCode.HISTORY_EXPORT]: { description: 'Exportar historial' },
+  [PermissionCode.GAME_CONFIG]: { description: 'Configurar juego' },
+  [PermissionCode.AUDIT_VIEW]: { description: 'Ver auditoría' },
 };
 
-/** Primera sección del NAV que usa cada permiso (para FK section_id). */
 function primarySectionFor(code: PermissionCode): {
   menu: string;
   section: string;
@@ -83,7 +144,6 @@ function primarySectionFor(code: PermissionCode): {
 }
 
 export async function ensurePermissionCatalog(manager: EntityManager) {
-  const menuByName = new Map<string, Menu>();
   const sectionByKey = new Map<string, Section>();
 
   for (const menuDef of NAV_CATALOG) {
@@ -99,7 +159,6 @@ export async function ensurePermissionCatalog(manager: EntityManager) {
       menu.sortOrder = menuDef.order;
       menu = await manager.save(menu);
     }
-    menuByName.set(menuDef.name, menu);
 
     for (const sectionDef of menuDef.sections) {
       const key = `${menuDef.name}::${sectionDef.name}`;
@@ -165,10 +224,6 @@ export type BuiltMenuNode = {
   }[];
 };
 
-/**
- * Arma el sidebar: cruza NAV_CATALOG + menús/secciones de BD + permisos del usuario.
- * system.admin ve todos los ítems.
- */
 export function buildNavMenusFromPermissions(
   userPermissions: Permission[],
   dbMenus: Menu[],
@@ -187,7 +242,6 @@ export function buildNavMenusFromPermissions(
     const sectionEntityByName = new Map(
       (menuEntity.sections ?? []).map((s) => [s.name, s]),
     );
-
     const sections: BuiltMenuNode['sections'] = [];
 
     for (const sectionDef of menuDef.sections) {
@@ -195,7 +249,6 @@ export function buildNavMenusFromPermissions(
         (code) => isAdmin || codes.has(code),
       );
       if (!allowedCodes.length) continue;
-
       const sectionEntity = sectionEntityByName.get(sectionDef.name);
       if (!sectionEntity) continue;
 
@@ -216,7 +269,6 @@ export function buildNavMenusFromPermissions(
     }
 
     if (!sections.length) continue;
-
     result.push({
       id: menuEntity.id,
       name: menuDef.name,

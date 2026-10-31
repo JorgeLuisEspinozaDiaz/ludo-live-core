@@ -12,7 +12,6 @@ import { EntityStatus } from 'src/common/enums';
 import { Tenant } from 'src/tenant/entities/tenant.entity';
 import { TenantConfig } from 'src/tenant/entities/tenant-config.entity';
 import { Permission } from 'src/permission/entities/permission.entity';
-import { Role } from 'src/role/entities/role.entity';
 import { User } from 'src/user/entities/user.entity';
 import { Menu } from 'src/menu/entities/menu.entity';
 import { BootstrapDto, LoginDto } from './dto/login.dto';
@@ -23,6 +22,10 @@ import {
 } from 'src/sedder/permission-catalog';
 import { TenantConnectionService } from 'src/tenant/tenant-connection.service';
 import { PermissionsSeederService } from 'src/sedder/permissions-seeder.service';
+import { ensureGameRolesAndConfig } from 'src/sedder/roles-bootstrap';
+import { Wallet } from 'src/wallet/entities/wallet.entity';
+import { PointsWallet } from 'src/points/entities/points-wallet.entity';
+import { ROLE_ADMIN } from 'src/common/enums';
 
 @Injectable()
 export class AuthService {
@@ -77,17 +80,16 @@ export class AuthService {
     });
   }
 
-  async login(loginDto: LoginDto) {
+  private async resolveTenant(tenantHint?: string) {
     let tenant: Tenant | null = null;
-
-    if (loginDto.tenant) {
-      if (isUuid(loginDto.tenant)) {
+    if (tenantHint) {
+      if (isUuid(tenantHint)) {
         tenant = await this.controlTenants.findOne({
-          where: { id: loginDto.tenant },
+          where: { id: tenantHint },
         });
       } else {
         tenant = await this.controlTenants.findOne({
-          where: { slug: loginDto.tenant },
+          where: { slug: tenantHint },
         });
       }
       if (!tenant) {
@@ -107,11 +109,14 @@ export class AuthService {
         );
       }
     }
-
     if (tenant.status !== EntityStatus.ACTIVE) {
       throw new UnauthorizedException('El tenant está inactivo');
     }
+    return tenant;
+  }
 
+  async login(loginDto: LoginDto) {
+    const tenant = await this.resolveTenant(loginDto.tenant);
     const ds = await this.tenantConnections.getByTenantId(tenant.id);
     const user = await this.loadUserAuth(ds, tenant.id, loginDto.username);
     if (!user || user.status !== EntityStatus.ACTIVE) {
@@ -123,28 +128,27 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const payload: JwtPayload = {
-      sub: user.id,
-      username: user.username,
-      tenantId: user.tenantId,
-    };
+    return this.issueSession(user.id, tenant.id);
+  }
 
-    const permissions = (user.role?.permissions ?? []).map((p) => p.code);
-    const menus = await this.buildMenus(ds, user.role?.permissions ?? []);
-
-    return {
-      access_token: this.jwtService.sign(payload),
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        tenantId: user.tenantId,
-        tenantSlug: tenant.slug,
-        role: { id: user.roleId, name: user.role?.name },
-      },
-      permissions,
-      menus,
-    };
+  /** Entrada de jugador solo con PIN */
+  async loginByPin(pin: string, tenantHint?: string) {
+    const tenant = await this.resolveTenant(tenantHint);
+    const ds = await this.tenantConnections.getByTenantId(tenant.id);
+    const normalized = pin.trim();
+    const user = await ds.getRepository(User).findOne({
+      where: { tenantId: tenant.id, accessPin: normalized },
+      relations: [
+        'role',
+        'role.permissions',
+        'role.permissions.section',
+        'role.permissions.section.menu',
+      ],
+    });
+    if (!user || user.status !== EntityStatus.ACTIVE) {
+      throw new UnauthorizedException('PIN inválido');
+    }
+    return this.issueSession(user.id, tenant.id);
   }
 
   async me(userId: string, tenantId: string) {
@@ -177,6 +181,91 @@ export class AuthService {
       tenantId: user.tenantId,
     };
     return { access_token: this.jwtService.sign(payload) };
+  }
+
+  /** Sesión completa (login response) para un usuario ya validado */
+  async issueSession(userId: string, tenantId: string) {
+    const tenant = await this.controlTenants.findOne({ where: { id: tenantId } });
+    if (!tenant || tenant.status !== EntityStatus.ACTIVE) {
+      throw new UnauthorizedException('Tenant inválido');
+    }
+    const ds = await this.tenantConnections.getByTenantId(tenantId);
+    const user = await this.loadUserById(ds, userId);
+    if (!user || user.status !== EntityStatus.ACTIVE) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+    const payload: JwtPayload = {
+      sub: user.id,
+      username: user.username,
+      tenantId: user.tenantId,
+    };
+    const permissions = (user.role?.permissions ?? []).map((p) => p.code);
+    const menus = await this.buildMenus(ds, user.role?.permissions ?? []);
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        tenantId: user.tenantId,
+        tenantSlug: tenant.slug,
+        role: { id: user.roleId, name: user.role?.name },
+      },
+      permissions,
+      menus,
+    };
+  }
+
+  /** Token de invitación (link directo sin PIN) */
+  async createInviteToken(
+    tenantId: string,
+    userId: string,
+    opts?: { liveId?: string; expiresInDays?: number },
+  ) {
+    const ds = await this.tenantConnections.getByTenantId(tenantId);
+    const user = await this.loadUserById(ds, userId);
+    if (!user || user.status !== EntityStatus.ACTIVE) {
+      throw new BadRequestException('Usuario no encontrado o inactivo');
+    }
+    const days = Math.min(Math.max(opts?.expiresInDays ?? 7, 1), 30);
+    const token = this.jwtService.sign(
+      {
+        typ: 'invite',
+        sub: user.id,
+        tenantId,
+        username: user.username,
+        liveId: opts?.liveId ?? null,
+      },
+      { expiresIn: `${days}d` },
+    );
+    return {
+      token,
+      username: user.username,
+      liveId: opts?.liveId ?? null,
+      expiresInDays: days,
+    };
+  }
+
+  async redeemInvite(token: string) {
+    let payload: {
+      typ?: string;
+      sub: string;
+      tenantId: string;
+      liveId?: string | null;
+    };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('Link inválido o vencido');
+    }
+    if (payload.typ !== 'invite' || !payload.sub || !payload.tenantId) {
+      throw new UnauthorizedException('Link inválido');
+    }
+    const session = await this.issueSession(payload.sub, payload.tenantId);
+    return {
+      ...session,
+      liveId: payload.liveId ?? null,
+    };
   }
 
   async bootstrap(dto: BootstrapDto) {
@@ -229,14 +318,16 @@ export class AuthService {
         });
         await manager.save(config);
 
+        const { admin } = await ensureGameRolesAndConfig(
+          manager,
+          controlTenant.id,
+        );
+
+        // Asegurar que el rol admin tenga todos los permisos (incl. endpoints)
         const allPermissions = await manager.find(Permission);
-        const adminRole = manager.create(Role, {
-          tenantId: controlTenant.id,
-          name: 'Administrador',
-          description: 'Acceso total al sistema',
-          permissions: allPermissions,
-        });
-        await manager.save(adminRole);
+        admin.permissions = allPermissions;
+        admin.name = ROLE_ADMIN;
+        await manager.save(admin);
 
         const hashed = await bcrypt.hash(dto.password, 10);
         const adminUser = manager.create(User, {
@@ -244,10 +335,25 @@ export class AuthService {
           username: dto.username,
           email: dto.email,
           password: hashed,
-          roleId: adminRole.id,
+          roleId: admin.id,
           status: EntityStatus.ACTIVE,
         });
         await manager.save(adminUser);
+
+        await manager.save(
+          manager.create(Wallet, {
+            tenantId: controlTenant.id,
+            userId: adminUser.id,
+            balanceCents: 0,
+          }),
+        );
+        await manager.save(
+          manager.create(PointsWallet, {
+            tenantId: controlTenant.id,
+            userId: adminUser.id,
+            balance: 0,
+          }),
+        );
 
         return {
           tenant: {

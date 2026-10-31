@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { Tenant } from 'src/tenant/entities/tenant.entity';
+import { PlatformAdmin } from 'src/platform/entities/platform-admin.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategy/jwt.strategy';
@@ -17,7 +18,7 @@ import { PermissionsSeederModule } from 'src/sedder/permissions-seeder.module';
   imports: [
     PermissionsSeederModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    TypeOrmModule.forFeature([Tenant], 'control'),
+    TypeOrmModule.forFeature([Tenant, PlatformAdmin], 'control'),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

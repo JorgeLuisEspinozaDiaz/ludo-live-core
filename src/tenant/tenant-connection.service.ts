@@ -10,6 +10,7 @@ import { DataSource } from 'typeorm';
 import { Tenant } from './entities/tenant.entity';
 import { TENANT_ENTITIES } from './tenant-entities';
 import { EntityStatus } from 'src/common/enums';
+import { TenantMigrationService } from 'src/database/tenant-migration.service';
 
 @Injectable()
 export class TenantConnectionService implements OnModuleDestroy {
@@ -20,6 +21,7 @@ export class TenantConnectionService implements OnModuleDestroy {
     private readonly config: ConfigService,
     @InjectDataSource('control')
     private readonly controlDs: DataSource,
+    private readonly tenantMigrations: TenantMigrationService,
   ) {}
 
   private adminConfig() {
@@ -139,6 +141,7 @@ export class TenantConnectionService implements OnModuleDestroy {
 
   private async createAndInitDataSource(tenant: Tenant): Promise<DataSource> {
     const admin = this.adminConfig();
+    const sync = this.config.get<string>('DB_SYNC', 'false') === 'true';
     const ds = new DataSource({
       type: 'postgres',
       host: tenant.dbHost || admin.host,
@@ -147,11 +150,11 @@ export class TenantConnectionService implements OnModuleDestroy {
       password: tenant.dbPassword || admin.password,
       database: tenant.databaseName!,
       entities: TENANT_ENTITIES,
-      synchronize:
-        this.config.get<string>('DB_SYNC', 'true') === 'true',
+      synchronize: sync,
       logging: this.config.get<string>('DB_LOGGING', 'false') === 'true',
     });
     await ds.initialize();
+    await this.tenantMigrations.runForDataSource(ds);
     return ds;
   }
 

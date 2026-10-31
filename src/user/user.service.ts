@@ -5,19 +5,26 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
-import { EntityStatus } from 'src/common/enums';
+import { DataSource, Repository } from 'typeorm';
+import { EntityStatus, ROLE_PARTICIPANT } from 'src/common/enums';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 import { listOrPaginate } from 'src/common/utils/pagination.helper';
+import { AuthService } from 'src/auth/auth.service';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateParticipantDto } from './dto/create-participant.dto';
+import { Role } from 'src/role/entities/role.entity';
+import { Wallet } from 'src/wallet/entities/wallet.entity';
+import { PointsWallet } from 'src/points/entities/points-wallet.entity';
 
 @Injectable()
 export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly ds: DataSource,
+    private readonly authService: AuthService,
   ) {}
 
   async create(tenantId: string, dto: CreateUserDto, createdBy?: string) {
@@ -139,5 +146,98 @@ export class UserService {
 
   async remove(tenantId: string, id: string, updatedBy?: string) {
     return this.changeStatus(tenantId, id, EntityStatus.INACTIVE, updatedBy);
+  }
+
+  async createParticipant(
+    tenantId: string,
+    dto: CreateParticipantDto,
+    createdBy?: string,
+  ) {
+    return this.ds.transaction(async (manager) => {
+      const role = await manager.getRepository(Role).findOne({
+        where: { tenantId, name: ROLE_PARTICIPANT },
+      });
+      if (!role) {
+        throw new BadRequestException(
+          'Rol Participante no encontrado. Ejecute el seeder/migraciones.',
+        );
+      }
+
+      const pin = dto.password.trim();
+      const exists = await manager.getRepository(User).findOne({
+        where: [
+          { tenantId, username: dto.username },
+          { tenantId, accessPin: pin },
+          ...(dto.email ? [{ tenantId, email: dto.email }] : []),
+        ],
+      });
+      if (exists) {
+        throw new BadRequestException(
+          'Ya existe un usuario con ese username, email o PIN',
+        );
+      }
+
+      const user = await manager.getRepository(User).save(
+        manager.getRepository(User).create({
+          tenantId,
+          username: dto.username,
+          email: dto.email,
+          accessPin: pin,
+          password: await bcrypt.hash(pin, 10),
+          roleId: role.id,
+          status: EntityStatus.ACTIVE,
+          createdBy: createdBy ?? null,
+        }),
+      );
+
+      await manager.getRepository(Wallet).save(
+        manager.getRepository(Wallet).create({
+          tenantId,
+          userId: user.id,
+          balanceCents: 0,
+        }),
+      );
+      await manager.getRepository(PointsWallet).save(
+        manager.getRepository(PointsWallet).create({
+          tenantId,
+          userId: user.id,
+          balance: 0,
+        }),
+      );
+
+      return manager.getRepository(User).findOne({
+        where: { id: user.id },
+        relations: ['role'],
+      });
+    });
+  }
+
+  async resetPassword(
+    tenantId: string,
+    id: string,
+    password: string,
+    updatedBy?: string,
+  ) {
+    const user = await this.findOne(tenantId, id);
+    const pin = password.trim();
+    const clash = await this.userRepository.findOne({
+      where: { tenantId, accessPin: pin },
+    });
+    if (clash && clash.id !== id) {
+      throw new BadRequestException('Ese PIN ya está en uso');
+    }
+    user.password = await bcrypt.hash(pin, 10);
+    user.accessPin = pin;
+    user.updatedBy = updatedBy ?? null;
+    await this.userRepository.save(user);
+    return { id: user.id, message: 'PIN actualizado' };
+  }
+
+  async createAccessLink(
+    tenantId: string,
+    userId: string,
+    opts?: { liveId?: string; expiresInDays?: number },
+  ) {
+    return this.authService.createInviteToken(tenantId, userId, opts);
   }
 }

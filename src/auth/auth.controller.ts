@@ -3,7 +3,12 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from 'src/common/decorators/permissions.decorator';
 import { CurrentUser } from 'src/common/decorators/auth.decorators';
 import { AuthService } from './auth.service';
-import { BootstrapDto, LoginDto } from './dto/login.dto';
+import {
+  BootstrapDto,
+  LoginDto,
+  LoginPinDto,
+  RedeemInviteDto,
+} from './dto/login.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -16,10 +21,24 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  /** Jugador: solo PIN (sin usuario) */
+  @Public()
+  @Post('login-pin')
+  loginPin(@Body() dto: LoginPinDto) {
+    return this.authService.loginByPin(dto.pin, dto.tenant);
+  }
+
   @Public()
   @Post('bootstrap')
   bootstrap(@Body() dto: BootstrapDto) {
     return this.authService.bootstrap(dto);
+  }
+
+  /** Canjea link directo (sin PIN) generado por el admin */
+  @Public()
+  @Post('redeem-invite')
+  redeemInvite(@Body() dto: RedeemInviteDto) {
+    return this.authService.redeemInvite(dto.token);
   }
 
   @ApiBearerAuth()

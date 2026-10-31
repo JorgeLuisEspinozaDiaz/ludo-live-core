@@ -2,9 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as express from 'express';
 import { join } from 'path';
 import { DataSource } from 'typeorm';
+import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
 // Zona horaria de negocio (Perú). Debe ir antes de crear la app.
 process.env.TZ = process.env.APP_TZ || 'America/Lima';
@@ -46,11 +48,16 @@ async function bootstrap() {
   await ensureControlDatabase();
 
   const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
+
+  const redisAdapter = new RedisIoAdapter(app, configService);
+  await redisAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisAdapter);
 
   const config = new DocumentBuilder()
-    .setTitle('WOST SPA API')
+    .setTitle('Ludo Live Core API')
     .setDescription(
-      'API de gestión para spa/belleza: catálogo, agenda, POS, caja, inventario y reportes',
+      'API multi-tenant para rondas de Ludo en vivo con apuestas por colores. Montos en céntimos.',
     )
     .setVersion('1.0')
     .addBearerAuth()
@@ -81,7 +88,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3005;
   await app.listen(port);
-  console.log(`WOST SPA API escuchando en http://localhost:${port}`);
+  console.log(`Ludo Live Core escuchando en http://localhost:${port}`);
   console.log(`Swagger: http://localhost:${port}/api`);
   console.log(`Timezone: ${process.env.TZ}`);
 }

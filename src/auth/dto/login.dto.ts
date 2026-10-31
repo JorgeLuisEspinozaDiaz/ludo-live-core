@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class LoginDto {
   @ApiProperty({ description: 'Usuario o email' })
@@ -16,6 +25,39 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   tenant?: string;
+}
+
+export class LoginPinDto {
+  @ApiProperty({ description: 'PIN de acceso del jugador' })
+  @IsString()
+  @MinLength(4)
+  pin: string;
+
+  @ApiPropertyOptional({ description: 'Slug o UUID del tenant' })
+  @IsOptional()
+  @IsString()
+  tenant?: string;
+}
+
+export class RedeemInviteDto {
+  @ApiProperty({ description: 'Token de acceso directo generado por el admin' })
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+}
+
+export class CreateAccessLinkDto {
+  @ApiPropertyOptional({ description: 'Live al que redirigir tras entrar' })
+  @IsOptional()
+  @IsUUID()
+  liveId?: string;
+
+  @ApiPropertyOptional({ description: 'Días de vigencia (default 7)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  expiresInDays?: number;
 }
 
 export class BootstrapDto {

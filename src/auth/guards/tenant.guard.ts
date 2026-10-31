@@ -19,6 +19,9 @@ export class TenantGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
+    // Admin de plataforma opera sobre control plane (sin tenant)
+    if (request.user?.isPlatformAdmin) return true;
+
     const headerTenant = request.headers['x-tenant-id'] as string | undefined;
     const userTenant = request.user?.tenantId as string | undefined;
 

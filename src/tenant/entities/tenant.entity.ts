@@ -14,7 +14,12 @@ export class Tenant extends BaseEntity {
   @Column({ type: 'varchar', unique: true })
   slug: string;
 
-  @Column({ type: 'enum', enum: EntityStatus, default: EntityStatus.ACTIVE })
+  @Column({
+    type: 'enum',
+    enum: EntityStatus,
+    enumName: 'entity_status_enum',
+    default: EntityStatus.ACTIVE,
+  })
   status: EntityStatus;
 
   /** Nombre de la base PostgreSQL del tenant (solo relevante en control). */
